@@ -47,9 +47,7 @@ export function isNestedLauncherCodexHome(
 // session_meta first lines are ~22–27 KB; 8 KiB truncates them mid-JSON.
 export const FIRST_LINE_READ_CAP = 1024 * 1024
 
-/** Session id from the first `session_meta` line of a Codex rollout file.
- *  Missing / unreadable files return undefined — callers must not drop those. */
-export function rolloutFileSessionId(filePath: string): string | undefined {
+function rolloutMetaPayload(filePath: string): { id?: unknown; session_id?: unknown } | undefined {
   try {
     const slice = readTextHeadSync(filePath, FIRST_LINE_READ_CAP)
     if (slice.length === 0) return undefined
@@ -60,12 +58,28 @@ export function rolloutFileSessionId(filePath: string): string | undefined {
     if (!line) return undefined
     const parsed: unknown = JSON.parse(line)
     if (!parsed || typeof parsed !== 'object') return undefined
-    const payload = (parsed as { payload?: { session_id?: unknown } }).payload
-    const id = payload?.session_id
-    return typeof id === 'string' && id.length > 0 ? id : undefined
+    return (parsed as { payload?: { id?: unknown; session_id?: unknown } }).payload
   } catch {
     return undefined
   }
+}
+
+function nonEmpty(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/** Session id from the first `session_meta` line of a Codex rollout file.
+ *  Missing / unreadable files return undefined — callers must not drop those. */
+export function rolloutFileSessionId(filePath: string): string | undefined {
+  return nonEmpty(rolloutMetaPayload(filePath)?.session_id)
+}
+
+/** The rollout's own thread id (`payload.id`), falling back to `session_id`.
+ *  A subagent rollout carries its parent's `session_id`, so siblings share it;
+ *  `payload.id` is unique per rollout and is what the parser keys calls on. */
+export function rolloutFileThreadId(filePath: string): string | undefined {
+  const payload = rolloutMetaPayload(filePath)
+  return nonEmpty(payload?.id) ?? nonEmpty(payload?.session_id)
 }
 
 /** `rollout-*.jsonl`, or the `.jsonl.zst` form Codex compresses cold rollouts into. */
@@ -129,6 +143,26 @@ export function defaultLauncherRoots(): string[] {
   return [join(homedir(), '.buzz')]
 }
 
+/** Codex homes omnigent creates, one per omnigent session:
+ *  `<home>/.omnigent/codex-native/<id>/codex-home`. Only homes that hold a
+ *  sessions tree are returned. They share `~/.codex/auth.json`, so they bill
+ *  the same Codex seat; read fresh on every call because omnigent adds homes
+ *  while running. */
+export function omnigentCodexHomes(home = homedir()): string[] {
+  const native = join(home, '.omnigent', 'codex-native')
+  let entries
+  try {
+    entries = readdirSync(native, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter(e => e.isDirectory())
+    .map(e => join(native, e.name, 'codex-home'))
+    .filter(dir => existsSync(join(dir, 'sessions')) || existsSync(join(dir, 'archived_sessions')))
+    .sort()
+}
+
 /** Surfaces that drive another billed store. Not providers. No session count.
  *  Presence of `~/.buzz` is the heuristic — we do not inspect a nested Codex
  *  tree here (that store is billed via the Codex provider). */
@@ -141,6 +175,15 @@ export function collectLauncherNotes(home = homedir()): LauncherNote[] {
       path: buzz,
       billedVia: 'codex',
       verdict: 'LAUNCHER (heuristic; billed via Codex)',
+    })
+  }
+  const omnigent = join(home, '.omnigent', 'codex-native')
+  if (existsSync(omnigent)) {
+    notes.push({
+      name: 'omnigent',
+      path: omnigent,
+      billedVia: 'codex',
+      verdict: 'LAUNCHER (billed via Codex)',
     })
   }
   return notes

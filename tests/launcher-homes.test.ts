@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink } from 'fs/promises'
 import { basename, join } from 'path'
 import { tmpdir } from 'os'
 
-import { collectLauncherNotes, isNestedLauncherCodexHome } from '../src/launcher-homes.js'
+import { collectLauncherNotes, isNestedLauncherCodexHome, omnigentCodexHomes } from '../src/launcher-homes.js'
 import { collectDoctorReport, renderDoctorTable } from '../src/doctor.js'
 import { createCodexProvider } from '../src/providers/codex.js'
 import { emptyCache } from '../src/session-cache.js'
@@ -254,6 +254,28 @@ describe('Codex discover overlap-only nest filter', () => {
   })
 })
 
+describe('omnigentCodexHomes', () => {
+  it('lists codex-home dirs that hold sessions, sorted', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const native = join(home, '.omnigent', 'codex-native')
+    await writeCodexSession(join(native, 'bbb', 'codex-home'), 'rollout-b.jsonl')
+    await mkdir(join(native, 'aaa', 'codex-home', 'archived_sessions'), { recursive: true })
+    expect(omnigentCodexHomes(home)).toEqual([join(native, 'aaa', 'codex-home'), join(native, 'bbb', 'codex-home')])
+    await rm(home, { recursive: true, force: true })
+  })
+
+  it('skips incomplete and unreadable entries', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const native = join(home, '.omnigent', 'codex-native')
+    await mkdir(join(native, 'no-home'), { recursive: true })
+    await mkdir(join(native, 'empty', 'codex-home'), { recursive: true })
+    await writeFile(join(native, 'process-registry.json'), '{}')
+    expect(omnigentCodexHomes(home)).toEqual([])
+    expect(omnigentCodexHomes(join(home, 'missing'))).toEqual([])
+    await rm(home, { recursive: true, force: true })
+  })
+})
+
 describe('doctor launchers', () => {
   it('lists Buzz as a launcher with no session count', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
@@ -276,6 +298,25 @@ describe('doctor launchers', () => {
     const buzzLine = table.split('\n').find(line => /^\s*buzz\s/.test(line))
     expect(buzzLine).toBeDefined()
     expect(buzzLine).not.toMatch(/\d+\s+session/)
+    await rm(home, { recursive: true, force: true })
+  })
+
+  it('lists omnigent as a launcher when codex-native exists', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    await mkdir(join(home, '.omnigent', 'codex-native'), { recursive: true })
+    const notes = collectLauncherNotes(home)
+    expect(notes).toEqual([expect.objectContaining({ name: 'omnigent', billedVia: 'codex' })])
+    expect(notes[0]!.verdict).toMatch(/LAUNCHER/)
+    expect(notes[0]!.verdict).not.toMatch(/\d+\s+session/)
+
+    const report = await collectDoctorReport('all', {
+      providers: [createCodexProvider(join(home, 'empty-codex'))],
+      cache: emptyCache(),
+      launchers: notes,
+    })
+    const table = renderDoctorTable(report, { color: false })
+    expect(table).toContain('omnigent')
+    expect(table).toContain('billed via Codex')
     await rm(home, { recursive: true, force: true })
   })
 })
