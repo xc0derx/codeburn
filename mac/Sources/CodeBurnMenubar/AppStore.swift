@@ -382,12 +382,14 @@ final class AppStore {
         if effectiveSelectedScope == .combined {
             let combinedPayload = cache[currentKey]?.payload
             if let localPayload = consistentCachedPayload(for: localCurrentKey) {
-                if let combined = combinedPayload?.combined {
+                if let combinedPayload, let combined = combinedPayload.combined {
+                    // The combined response's current/history already fold in
+                    // every paired device; findings stay this Mac's own.
                     return MenubarPayload(
-                        generated: combinedPayload?.generated ?? localPayload.generated,
-                        current: localPayload.current,
+                        generated: combinedPayload.generated,
+                        current: combinedPayload.current,
                         optimize: localPayload.optimize,
-                        history: localPayload.history,
+                        history: combinedPayload.history,
                         combined: combined,
                         claudeConfigs: localPayload.claudeConfigs
                     )

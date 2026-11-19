@@ -477,7 +477,8 @@ struct AppStoreRefreshRecoveryTests {
 
         store.selectedScope = .combined
 
-        #expect(store.payload.current.cost == 10)
+        // The combined response's current already folds in paired devices.
+        #expect(store.payload.current.cost == 99)
         #expect(store.payload.combined?.combined.cost == 42)
     }
 
