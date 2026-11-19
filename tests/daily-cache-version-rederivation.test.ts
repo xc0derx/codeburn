@@ -232,6 +232,32 @@ describe('copilot re-derive after chat-session twins moved to the agent host (v7
   })
 })
 
+describe('re-derive after omnigent Codex homes are read (v80)', () => {
+  const settled = toDateString(new Date(Date.now() - 10 * 24 * 60 * 60 * 1000))
+  const yesterday = toDateString(new Date(Date.now() - 24 * 60 * 60 * 1000))
+  const withCodex = (calls: number): DailyEntry => ({
+    ...day(settled, calls),
+    providers: { codex: { ...day(settled, calls).providers.grok!, calls } },
+    models: {},
+  })
+
+  it('raises a settled codex day finalized before omnigent homes were read', async () => {
+    await writeFile(join(cacheRoot, 'daily-cache.v79.json'), JSON.stringify({
+      version: 79,
+      savingsConfigHash: 'cfg',
+      tzKey: currentTzKey(),
+      lastComputedDate: yesterday,
+      days: [withCodex(2)],
+      complete: true,
+      watermarkTrusted: true,
+    }))
+
+    const hydrated = await ensureCacheHydrated(async () => [], () => [withCodex(5)], 'cfg', () => true)
+
+    expect(hydrated.days.find(d => d.date === settled)!.providers.codex?.calls).toBe(5)
+  })
+})
+
 describe('re-derive after the November provider fixes (v79)', () => {
   const settled = toDateString(new Date(Date.now() - 10 * 24 * 60 * 60 * 1000))
   const yesterday = toDateString(new Date(Date.now() - 24 * 60 * 60 * 1000))

@@ -14,7 +14,7 @@ import { estimateTokensFromChars } from '../token-estimate.js'
 import { wslHomes } from '../wsl.js'
 import type { ToolCall } from '../types.js'
 import type { Provider, ProbeRoot, SessionSource, SessionParser, ParsedProviderCall } from './types.js'
-import { defaultBilledCodexHome, defaultLauncherRoots, FIRST_LINE_READ_CAP, isNestedLauncherCodexHome, isRolloutFileName, listRolloutSessionIds, rolloutFileSessionId, rolloutStem, sameCodexHome } from '../launcher-homes.js'
+import { defaultBilledCodexHome, defaultLauncherRoots, FIRST_LINE_READ_CAP, isNestedLauncherCodexHome, isRolloutFileName, listRolloutSessionIds, omnigentCodexHomes, rolloutFileSessionId, rolloutFileThreadId, rolloutStem, sameCodexHome } from '../launcher-homes.js'
 
 const modelDisplayNames: Record<string, string> = {
   'codex-auto-review': 'Codex Auto Review',
@@ -1777,6 +1777,18 @@ function rootsFor(home: string): ProbeRoot[] {
   ]
 }
 
+// Keeps sources whose thread id is unreadable or not yet in `seen`, and
+// records the kept ids, so the first tree to hold a rollout wins.
+function dropKnownThreadIds(sources: SessionSource[], seen: Set<string>): SessionSource[] {
+  return sources.filter(source => {
+    const id = rolloutFileThreadId(source.path)
+    if (!id) return true
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
 function dropOverlappingNestSources(sources: SessionSource[], billedHome: string): SessionSource[] {
   const billedIds = listRolloutSessionIds(billedHome)
   return sources.filter(source => {
@@ -1809,6 +1821,11 @@ export function createCodexProvider(
   // Resolved lazily: `codex` is built at import and WSL probing spawns wsl.exe.
   const wslCodexDirs = (): string[] =>
     codexDir ? [] : wslHomes().map(home => join(home, '.codex'))
+  // Omnigent gives each of its sessions its own CODEX_HOME sharing the
+  // billed seat's auth.json; read fresh because omnigent adds homes while
+  // running. A home already scanned as `dir` or the billed home is skipped.
+  const omnigentDirs = (): string[] =>
+    codexDir ? [] : omnigentCodexHomes().filter(d => !sameCodexHome(d, dir) && !sameCodexHome(d, primaryDir))
 
   return {
     name: 'codex',
@@ -1831,7 +1848,7 @@ export function createCodexProvider(
     async probeRoots(): Promise<ProbeRoot[]> {
       if (duplicateHome) return []
       const local = scanBoth ? [...rootsFor(primaryDir), ...rootsFor(dir)] : rootsFor(dir)
-      return [...local, ...wslCodexDirs().flatMap(rootsFor)]
+      return [...local, ...omnigentDirs().flatMap(rootsFor), ...wslCodexDirs().flatMap(rootsFor)]
     },
 
     async discoverSessions(): Promise<SessionSource[]> {
@@ -1851,7 +1868,20 @@ export function createCodexProvider(
       } else {
         local = dropOverlappingNestSources(sources, primaryDir)
       }
-      return [...local, ...wslSources]
+      const omnigentHomes = omnigentDirs()
+      if (omnigentHomes.length === 0) return [...local, ...wslSources]
+      // Thread ids are only read when omnigent homes exist, so discovery
+      // without ~/.omnigent stays as cheap as before.
+      const seen = new Set<string>()
+      for (const source of local) {
+        const id = rolloutFileThreadId(source.path)
+        if (id) seen.add(id)
+      }
+      const omnigentSources: SessionSource[] = []
+      for (const home of omnigentHomes) {
+        omnigentSources.push(...dropKnownThreadIds(await discoverSessionsInDir(home), seen))
+      }
+      return [...local, ...omnigentSources, ...wslSources]
     },
 
     createSessionParser(source: SessionSource, seenKeys: Set<string>): SessionParser {

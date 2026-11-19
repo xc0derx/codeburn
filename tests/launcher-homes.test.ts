@@ -254,6 +254,85 @@ describe('Codex discover overlap-only nest filter', () => {
   })
 })
 
+describe('Codex omnigent homes', () => {
+  let root: string
+  let primary: string
+  let native: string
+  let prevHome: string | undefined
+  let prevCodex: string | undefined
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'codex-omnigent-'))
+    primary = join(root, '.codex')
+    native = join(root, '.omnigent', 'codex-native')
+    prevHome = process.env.HOME
+    prevCodex = process.env.CODEX_HOME
+    setHome(root)
+    delete process.env.CODEX_HOME
+  })
+  afterEach(async () => {
+    if (prevHome === undefined) setHome(undefined)
+    else setHome(prevHome)
+    if (prevCodex === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = prevCodex
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('no-arg factory adds omnigent rollouts and roots', async () => {
+    await writeCodexSession(primary, 'rollout-billed.jsonl', 'sess-billed')
+    await writeCodexSession(join(native, 'a1', 'codex-home'), 'rollout-omni.jsonl', 'sess-omni')
+    const provider = createCodexProvider()
+    expect(names(await provider.discoverSessions()).sort()).toEqual(['rollout-billed.jsonl', 'rollout-omni.jsonl'])
+    expect((await provider.probeRoots!()).map(r => r.path)).toEqual([
+      join(primary, 'sessions'), join(primary, 'archived_sessions'),
+      join(native, 'a1', 'codex-home', 'sessions'), join(native, 'a1', 'codex-home', 'archived_sessions'),
+    ])
+  })
+
+  it('no omnigent dir leaves roots unchanged', async () => {
+    await writeCodexSession(primary, 'rollout-billed.jsonl')
+    const provider = createCodexProvider()
+    expect((await provider.probeRoots!()).map(r => r.path)).toEqual([join(primary, 'sessions'), join(primary, 'archived_sessions')])
+    expect(names(await provider.discoverSessions())).toEqual(['rollout-billed.jsonl'])
+  })
+
+  it('drops omnigent rollouts already in the billed home', async () => {
+    await writeCodexSession(primary, 'rollout-billed.jsonl', 'sess-shared')
+    await writeCodexSession(join(native, 'a1', 'codex-home'), 'rollout-copy.jsonl', 'sess-shared')
+    expect(names(await createCodexProvider().discoverSessions())).toEqual(['rollout-billed.jsonl'])
+  })
+
+  it('keeps sibling subagent rollouts that share their parent session_id', async () => {
+    await mkdir(primary, { recursive: true })
+    const home = join(native, 'a1', 'codex-home')
+    await writeCodexSession(home, 'rollout-child-1.jsonl', 'sess-parent', sessionMeta('sess-parent', { id: 'thread-child-1' }))
+    await writeCodexSession(home, 'rollout-child-2.jsonl', 'sess-parent', sessionMeta('sess-parent', { id: 'thread-child-2' }))
+    expect(names(await createCodexProvider().discoverSessions()).sort()).toEqual(['rollout-child-1.jsonl', 'rollout-child-2.jsonl'])
+  })
+
+  it('dedups the same session across two omnigent homes', async () => {
+    await mkdir(primary, { recursive: true })
+    await writeCodexSession(join(native, 'a1', 'codex-home'), 'rollout-first.jsonl', 'sess-x')
+    await writeCodexSession(join(native, 'b2', 'codex-home'), 'rollout-second.jsonl', 'sess-x')
+    expect(names(await createCodexProvider().discoverSessions())).toEqual(['rollout-first.jsonl'])
+  })
+
+  it('CODEX_HOME inside omnigent is not scanned twice', async () => {
+    const omni = join(native, 'a1', 'codex-home')
+    await mkdir(primary, { recursive: true })
+    await writeCodexSession(omni, 'rollout-omni.jsonl', 'sess-omni')
+    process.env.CODEX_HOME = omni
+    const provider = createCodexProvider()
+    expect(names(await provider.discoverSessions())).toEqual(['rollout-omni.jsonl'])
+    expect((await provider.probeRoots!()).map(r => r.path)).toEqual([join(omni, 'sessions'), join(omni, 'archived_sessions')])
+  })
+
+  it('explicit dir factory ignores omnigent', async () => {
+    await writeCodexSession(primary, 'rollout-billed.jsonl')
+    await writeCodexSession(join(native, 'a1', 'codex-home'), 'rollout-omni.jsonl')
+    expect(names(await createCodexProvider(primary).discoverSessions())).toEqual(['rollout-billed.jsonl'])
+  })
+})
+
 describe('omnigentCodexHomes', () => {
   it('lists codex-home dirs that hold sessions, sorted', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))

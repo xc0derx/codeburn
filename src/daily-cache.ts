@@ -388,7 +388,11 @@ import type { DateRange, ProjectSummary } from './types.js'
 // 79. Qwen and Hermes tokens, Droid model ids, Cline-family recorded costs,
 // Antigravity output, Warp exchange shares and version-boundary pricing change
 // with calls unchanged or rising, which the bump alone re-derives.
-export const DAILY_CACHE_VERSION = 79
+// v80: the default Codex provider reads the per-session Codex homes omnigent
+// creates (~/.omnigent/codex-native/*/codex-home), which were skipped, so days
+// settled before that miss their Codex usage. Calls and cost only rise, so no
+// PENDING_REDERIVE_PROVIDER_VERSIONS entry is needed.
+export const DAILY_CACHE_VERSION = 80
 const MIN_SUPPORTED_VERSION = 28
 
 /// Providers whose per-day CALL COUNT means something different at
