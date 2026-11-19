@@ -32,7 +32,7 @@ import { renderOverview } from './overview.js'
 import { runWebDashboard } from './web-dashboard.js'
 import { homedir, hostname } from 'os'
 import { runShareServer } from './sharing/share-run.js'
-import { addRemote, linkRemote, pullDevices, renderDevices, summarizeDeviceUsage } from './sharing/host.js'
+import { addRemote, linkRemote, mergeDevicePayloads, pullDevices, renderDevices, summarizeDeviceUsage } from './sharing/host.js'
 import { browse } from './sharing/discovery.js'
 import { promptChoice } from './sharing/prompt.js'
 import { loadOrCreateIdentity } from './sharing/identity.js'
@@ -1454,6 +1454,11 @@ program
             start: toDateString(periodInfo.range.start),
             end: toDateString(periodInfo.range.end),
           })
+          // Fold paired devices into the breakdowns behind the combined
+          // headline (models, activities, providers, tooling, daily history).
+          // Computed before `--combined-details` below so the local device's
+          // detail entry still carries its own local-only figures.
+          const merged = mergeDevicePayloads({ ...payload }, results)
           if (opts.combinedDetails) {
             payload.combinedDevices = results.map((device) => {
               // The local result references `payload` itself. Strip the
@@ -1473,6 +1478,8 @@ program
               }
             })
           }
+          payload.current = merged.current
+          payload.history = merged.history
         } catch {
           // best-effort only: the local payload is still emitted below
         }

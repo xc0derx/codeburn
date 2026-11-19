@@ -7,6 +7,7 @@ import type { UsageQuery } from './share-server.js'
 import { getSharingDir, loadRemotes, saveRemotes, type RemoteDevice } from './store.js'
 import type { CombinedUsage, DeviceSummary, MenubarPayload } from '../menubar-json.js'
 import { formatCost } from '../currency.js'
+import { sessionCacheHitPercent } from '../sessions-report.js'
 import { renderTable } from '../text-table.js'
 import { Chalk } from 'chalk'
 
@@ -112,6 +113,146 @@ export function summarizeDeviceUsage(results: DeviceUsage[], window?: SummaryWin
     { ...zeroUsage, deviceCount: perDevice.length, reachableCount: 0 },
   )
   return { perDevice, combined }
+}
+
+type Current = MenubarPayload['current']
+
+// Sum an add-only optional field. Absent on any contributor means the merged
+// value is unknown, so it stays absent rather than under-reporting.
+function sumOptional<T>(rows: T[], get: (row: T) => number | undefined): number | undefined {
+  let total = 0
+  for (const row of rows) {
+    const v = get(row)
+    if (v === undefined) return undefined
+    total += v
+  }
+  return total
+}
+
+// Group rows by key, keeping the cost-descending order every producer emits.
+function mergeRows<T, K>(rows: T[], key: (row: T) => K, merge: (group: T[]) => T, cost: (row: T) => number): T[] {
+  const groups = new Map<K, T[]>()
+  for (const row of rows) {
+    const k = key(row)
+    const g = groups.get(k)
+    if (g) g.push(row)
+    else groups.set(k, [row])
+  }
+  return [...groups.values()].map(merge).sort((a, b) => cost(b) - cost(a))
+}
+
+// The breakdowns behind the combined headline: the local `current`/`history`
+// with every reachable device's aggregate rows folded in. Project-, session-
+// and branch-level rows stay local, since remote payloads are sanitized of them.
+export function mergeDevicePayloads(local: MenubarPayload, results: DeviceUsage[]): Pick<MenubarPayload, 'current' | 'history'> {
+  const payloads = [
+    local,
+    ...results.filter((d) => !d.local && d.error === undefined && d.payload !== undefined).map((d) => d.payload as unknown as MenubarPayload),
+  ]
+  const currents = payloads.map((p) => p.current ?? ({} as Partial<Current>))
+  const all = <K extends keyof Current>(field: K): NonNullable<Current[K]> extends Array<infer R> ? R[] : never =>
+    currents.flatMap((c) => (c[field] as unknown[] | undefined) ?? []) as never
+  const sum = (field: 'cost' | 'calls' | 'sessions' | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens'): number =>
+    currents.reduce((s, c) => s + num(c[field]), 0)
+
+  const providers: Record<string, number> = {}
+  for (const c of currents) {
+    for (const [name, cost] of Object.entries(c.providers ?? {})) providers[name] = (providers[name] ?? 0) + num(cost)
+  }
+
+  const inputTokens = sum('inputTokens')
+  const cacheReadTokens = sum('cacheReadTokens')
+  const cacheWriteTokens = sum('cacheWriteTokens')
+  const estimatedCostUSD = sumOptional(currents, (c) => c.estimatedCostUSD)
+  const current: Current = {
+    ...local.current,
+    cost: sum('cost'),
+    calls: sum('calls'),
+    sessions: sum('sessions'),
+    inputTokens,
+    outputTokens: sum('outputTokens'),
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheHitPercent: sessionCacheHitPercent(inputTokens, cacheReadTokens, cacheWriteTokens) ?? 0,
+    ...(estimatedCostUSD !== undefined ? { estimatedCostUSD } : {}),
+    topActivities: mergeRows(all('topActivities'), (a) => a.name, (g) => {
+      // One-shot rate weighted by turns, ignoring devices that report none.
+      const rated = g.filter((a) => a.oneShotRate !== null)
+      const weight = rated.reduce((s, a) => s + Math.max(num(a.turns), 1), 0)
+      return {
+        ...g[0]!,
+        cost: g.reduce((s, a) => s + num(a.cost), 0),
+        savingsUSD: g.reduce((s, a) => s + num(a.savingsUSD), 0),
+        turns: g.reduce((s, a) => s + num(a.turns), 0),
+        oneShotRate: weight > 0 ? rated.reduce((s, a) => s + num(a.oneShotRate ?? 0) * Math.max(num(a.turns), 1), 0) / weight : null,
+      }
+    }, (a) => a.cost),
+    topModels: mergeRows(all('topModels'), (m) => m.name, (g) => {
+      const { estimatedCostUSD: _e, inputTokens: _i, outputTokens: _o, cacheReadTokens: _r, cacheWriteTokens: _w, ...first } = g[0]!
+      const optional = {
+        estimatedCostUSD: sumOptional(g, (m) => m.estimatedCostUSD),
+        inputTokens: sumOptional(g, (m) => m.inputTokens),
+        outputTokens: sumOptional(g, (m) => m.outputTokens),
+        cacheReadTokens: sumOptional(g, (m) => m.cacheReadTokens),
+        cacheWriteTokens: sumOptional(g, (m) => m.cacheWriteTokens),
+      }
+      return {
+        ...first,
+        savingsBaselineModel: g.find((m) => m.savingsBaselineModel)?.savingsBaselineModel ?? '',
+        cost: g.reduce((s, m) => s + num(m.cost), 0),
+        savingsUSD: g.reduce((s, m) => s + num(m.savingsUSD), 0),
+        calls: g.reduce((s, m) => s + num(m.calls), 0),
+        ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined)),
+      }
+    }, (m) => m.cost),
+    providers,
+    providerDetails: mergeRows(all('providerDetails'), (p) => p.id, (g) => {
+      // Per-provider token/session splits are only kept when every device sent them.
+      const { inputTokens: _i, outputTokens: _o, sessions: _s, sessionCountBasis: _b, cacheReadTokens: _r, estimatedCostUSD: _e, ...first } = g[0]!
+      const optional = {
+        estimatedCostUSD: sumOptional(g, (p) => p.estimatedCostUSD),
+        inputTokens: sumOptional(g, (p) => p.inputTokens),
+        outputTokens: sumOptional(g, (p) => p.outputTokens),
+        cacheReadTokens: sumOptional(g, (p) => p.cacheReadTokens),
+      }
+      return {
+        ...first,
+        cost: g.reduce((s, p) => s + num(p.cost), 0),
+        calls: g.reduce((s, p) => s + num(p.calls), 0),
+        hasUsage: g.some((p) => p.hasUsage),
+        ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined)),
+      }
+    }, (p) => p.cost),
+    tools: mergeRows(all('tools'), (t) => t.name, (g) => ({ name: g[0]!.name, calls: g.reduce((s, t) => s + num(t.calls), 0) }), (t) => t.calls),
+    skills: mergeRows(all('skills'), (k) => k.name, (g) => ({
+      name: g[0]!.name,
+      turns: g.reduce((s, k) => s + num(k.turns), 0),
+      cost: g.reduce((s, k) => s + num(k.cost), 0),
+    }), (k) => k.cost),
+    mcpServers: mergeRows(all('mcpServers'), (m) => m.name, (g) => ({ name: g[0]!.name, calls: g.reduce((s, m) => s + num(m.calls), 0) }), (m) => m.calls),
+  }
+
+  const days = payloads.flatMap((p) => p.history?.daily ?? [])
+  const daily = mergeRows(days, (d) => d.date, (g) => ({
+    date: g[0]!.date,
+    cost: g.reduce((s, d) => s + num(d.cost), 0),
+    savingsUSD: g.reduce((s, d) => s + num(d.savingsUSD), 0),
+    calls: g.reduce((s, d) => s + num(d.calls), 0),
+    inputTokens: g.reduce((s, d) => s + num(d.inputTokens), 0),
+    outputTokens: g.reduce((s, d) => s + num(d.outputTokens), 0),
+    cacheReadTokens: g.reduce((s, d) => s + num(d.cacheReadTokens), 0),
+    cacheWriteTokens: g.reduce((s, d) => s + num(d.cacheWriteTokens), 0),
+    topModels: mergeRows(g.flatMap((d) => d.topModels ?? []), (m) => m.name, (ms) => ({
+      name: ms[0]!.name,
+      cost: ms.reduce((s, m) => s + num(m.cost), 0),
+      savingsUSD: ms.reduce((s, m) => s + num(m.savingsUSD), 0),
+      calls: ms.reduce((s, m) => s + num(m.calls), 0),
+      inputTokens: ms.reduce((s, m) => s + num(m.inputTokens), 0),
+      outputTokens: ms.reduce((s, m) => s + num(m.outputTokens), 0),
+    }), (m) => m.cost),
+  }), () => 0).sort((a, b) => a.date.localeCompare(b.date))
+
+  return { current, history: { ...local.history, daily } }
 }
 
 function parseHostPort(input: string, defaultPort: number): { host: string; port: number } {

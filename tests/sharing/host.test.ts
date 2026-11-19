@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
-import { addRemote, pullDevices, renderDevices, summarizeDeviceUsage, type DeviceUsage } from '../../src/sharing/host.js'
+import { addRemote, mergeDevicePayloads, pullDevices, renderDevices, summarizeDeviceUsage, type DeviceUsage } from '../../src/sharing/host.js'
+import type { MenubarPayload } from '../../src/menubar-json.js'
 
 const clientMock = vi.hoisted(() => ({
   hello: vi.fn(),
@@ -262,5 +263,94 @@ describe('host device flow', () => {
     expect(text).toContain('$0.0028')
     expect(text).not.toContain('$0.0,028')
     expect(text).toContain('$1,234,567.00')
+  })
+})
+
+describe('mergeDevicePayloads', () => {
+  function devicePayload(current: Partial<MenubarPayload['current']>, daily: MenubarPayload['history']['daily'] = []): MenubarPayload {
+    return {
+      current: {
+        label: 'Last 7 Days',
+        cost: 0, calls: 0, sessions: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheHitPercent: 0,
+        topActivities: [], topModels: [], providers: {}, providerDetails: [], topProjects: [], topSessions: [],
+        tools: [], skills: [], mcpServers: [], subagents: [],
+        ...current,
+      },
+      history: { daily },
+    } as unknown as MenubarPayload
+  }
+  const day = (date: string, cost: number, models: Array<[string, number]>) => ({
+    date, cost, savingsUSD: 0, calls: 1, inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0,
+    topModels: models.map(([name, c]) => ({ name, cost: c, savingsUSD: 0, calls: 1, inputTokens: 10, outputTokens: 1 })),
+  })
+
+  const local = devicePayload({
+    cost: 0.36, calls: 70, sessions: 3, inputTokens: 100, outputTokens: 10, cacheReadTokens: 900, cacheWriteTokens: 0, cacheHitPercent: 90,
+    topActivities: [{ name: 'Coding', cost: 0.27, savingsUSD: 0, turns: 4, oneShotRate: 1 }],
+    topModels: [{ name: 'GPT-6.1 Terra', cost: 0.34, savingsUSD: 0, savingsBaselineModel: '', calls: 51, inputTokens: 100 }],
+    providers: { codex: 0.36 },
+    providerDetails: [{ id: 'codex', label: 'Codex', cost: 0.36, calls: 70, hasUsage: true, inputTokens: 100 }],
+    tools: [{ name: 'Bash', calls: 5 }],
+    topProjects: [{ name: 'local-project' } as MenubarPayload['current']['topProjects'][number]],
+  }, [day('2026-11-13', 0.36, [['GPT-6.1 Terra', 0.36]])])
+  const remote = devicePayload({
+    cost: 63.48, calls: 287, sessions: 9, inputTokens: 1000, outputTokens: 100, cacheReadTokens: 9000, cacheWriteTokens: 100,
+    topActivities: [
+      { name: 'Coding', cost: 50, savingsUSD: 0, turns: 12, oneShotRate: 0.5 },
+      { name: 'Debugging', cost: 13.48, savingsUSD: 0, turns: 3, oneShotRate: null },
+    ],
+    topModels: [
+      { name: 'GPT-6.2 Sol', cost: 60, savingsUSD: 0, savingsBaselineModel: '', calls: 250 },
+      { name: 'GPT-6.1 Terra', cost: 3.48, savingsUSD: 0, savingsBaselineModel: '', calls: 37 },
+    ],
+    providers: { codex: 63.48 },
+    providerDetails: [{ id: 'codex', label: 'Codex', cost: 63.48, calls: 287, hasUsage: true }],
+    tools: [{ name: 'Bash', calls: 40 }, { name: 'Read', calls: 7 }],
+  }, [day('2026-11-13', 3, [['GPT-6.1 Terra', 3]]), day('2026-11-18', 60.48, [['GPT-6.2 Sol', 60.48]])])
+
+  const results: DeviceUsage[] = [
+    { id: 'local', name: 'Mac', local: true, payload: local },
+    { id: 'fp', name: 'netcup-1', local: false, payload: remote },
+    { id: 'off', name: 'offline', local: false, error: 'timeout' },
+  ]
+
+  it('folds reachable remote devices into totals and breakdowns', () => {
+    const { current } = mergeDevicePayloads(local, results)
+
+    expect(current.cost).toBeCloseTo(63.84)
+    expect(current.calls).toBe(357)
+    expect(current.cacheHitPercent).toBeCloseTo(9900 / (1100 + 9900 + 100) * 100)
+    expect(current.topModels.map((m) => [m.name, m.calls])).toEqual([['GPT-6.2 Sol', 250], ['GPT-6.1 Terra', 88]])
+    expect(current.topActivities.map((a) => a.name)).toEqual(['Coding', 'Debugging'])
+    expect(current.topActivities[0]!.turns).toBe(16)
+    expect(current.topActivities[0]!.oneShotRate).toBeCloseTo((1 * 4 + 0.5 * 12) / 16)
+    expect(current.topActivities[1]!.oneShotRate).toBeNull()
+    expect(Object.keys(current.providers)).toEqual(['codex'])
+    expect(current.providers.codex).toBeCloseTo(63.84)
+    expect(current.providerDetails).toHaveLength(1)
+    expect(current.providerDetails[0]!.cost).toBeCloseTo(63.84)
+    expect(current.tools).toEqual([{ name: 'Bash', calls: 45 }, { name: 'Read', calls: 7 }])
+  })
+
+  it('drops an optional count that not every device reported instead of under-reporting it', () => {
+    const { current } = mergeDevicePayloads(local, results)
+    expect(current.topModels.find((m) => m.name === 'GPT-6.1 Terra')!.inputTokens).toBeUndefined()
+    expect(current.providerDetails[0]!.inputTokens).toBeUndefined()
+  })
+
+  it('keeps local-only rows and merges daily history by date', () => {
+    const { current, history } = mergeDevicePayloads(local, results)
+    expect(current.topProjects.map((p) => p.name)).toEqual(['local-project'])
+    expect(current.label).toBe('Last 7 Days')
+    expect(history.daily.map((d) => [d.date, d.cost])).toEqual([['2026-11-13', 3.36], ['2026-11-18', 60.48]])
+    expect(history.daily[0]!.topModels).toEqual([
+      { name: 'GPT-6.1 Terra', cost: 3.36, savingsUSD: 0, calls: 2, inputTokens: 20, outputTokens: 2 },
+    ])
+  })
+
+  it('leaves a local-only result unchanged', () => {
+    const { current, history } = mergeDevicePayloads(local, [results[0]!])
+    expect(current).toEqual(local.current)
+    expect(history).toEqual(local.history)
   })
 })
