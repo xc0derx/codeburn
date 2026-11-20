@@ -56,4 +56,24 @@ struct AgentTabProviderVisibilityTests {
         )
         #expect(keys.contains("hermes"))
     }
+
+    @Test("a live quota source keeps its tab, a disconnected one does not")
+    func liveQuotaKeepsTab() {
+        func summary(_ connection: QuotaSummary.Connection) -> QuotaSummary {
+            QuotaSummary(
+                providerFilter: .codex,
+                connection: connection,
+                primary: nil,
+                details: [],
+                planLabel: nil,
+                footerLines: []
+            )
+        }
+
+        #expect(ProviderVisibility.showsQuotaTab(summary(.connected)))
+        #expect(ProviderVisibility.showsQuotaTab(summary(.stale)))
+        #expect(ProviderVisibility.showsQuotaTab(summary(.terminalFailure(reason: nil))))
+        #expect(!ProviderVisibility.showsQuotaTab(summary(.disconnected)))
+        #expect(!ProviderVisibility.showsQuotaTab(nil))
+    }
 }

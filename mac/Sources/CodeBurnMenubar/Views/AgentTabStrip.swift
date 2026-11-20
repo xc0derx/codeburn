@@ -125,7 +125,8 @@ struct AgentTabStrip: View {
         // Tabs reflect the selected range. The payload's activity signal keeps
         // token-only and subscription/flat-rate providers visible while hiding
         // providers merely discovered on disk. Older payloads lack the activity
-        // signal, so their zero-cost discovery rows fail closed.
+        // signal, so their zero-cost discovery rows fail closed. A live quota
+        // source keeps its tab regardless, for the Plan view.
         let activeKeys = ProviderVisibility.activeKeys(
             providerDetails: periodAll.current.providerDetails,
             legacyProviders: periodAll.current.providers
@@ -135,6 +136,7 @@ struct AgentTabStrip: View {
             filter == .all
                 || activeKeys.contains(filter.cliArg)
                 || filter.providerKeys.contains(where: activeKeys.contains)
+                || ProviderVisibility.showsQuotaTab(store.quotaSummary(for: filter))
         }
         return detected.sorted { a, b in
             if a == .all { return true }

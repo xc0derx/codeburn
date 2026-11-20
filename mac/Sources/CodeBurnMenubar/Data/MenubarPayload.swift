@@ -542,6 +542,14 @@ enum ProviderVisibility {
             cost > 0 ? key.lowercased() : nil
         })
     }
+
+    /// A provider with a live quota source keeps its tab even without usage in
+    /// the range, so its Plan view (the 5-hour window) stays reachable. A
+    /// disconnected source (no credentials, or never activated) does not count.
+    static func showsQuotaTab(_ quota: QuotaSummary?) -> Bool {
+        guard let quota else { return false }
+        return quota.connection != .disconnected
+    }
 }
 
 struct LocalModelSavingsByModel: Codable, Sendable {
