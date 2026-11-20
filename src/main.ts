@@ -1309,8 +1309,8 @@ program
       process.stderr.write(`error: --claude-config-source cannot be combined with --provider ${opts.provider} (a Claude config scopes Claude usage only)\n`)
       process.exit(1)
     }
-    if (opts.scope === 'combined' && (opts.provider !== 'all' || opts.project.length > 0 || opts.exclude.length > 0)) {
-      process.stderr.write('error: --scope combined cannot be combined with --provider, --project, or --exclude (paired devices report unfiltered usage)\n')
+    if (opts.scope === 'combined' && (opts.project.length > 0 || opts.exclude.length > 0)) {
+      process.stderr.write('error: --scope combined cannot be combined with --project or --exclude (paired devices do not share project names)\n')
       process.exit(1)
     }
     await loadPricing()
@@ -1443,11 +1443,12 @@ program
         // down the base local payload: on any failure, emit local data with
         // `combined` omitted so the menubar always gets a valid response.
         try {
-          const query: UsageQuery = customRange
+          const range: UsageQuery = customRange
             ? { from: opts.from, to: opts.to }
             : daySelection
             ? { from: daySelection.day, to: daySelection.day }
             : { period: opts.period }
+          const query: UsageQuery = pf === 'all' ? range : { ...range, provider: pf }
           const localGetUsage = async (): Promise<typeof payload> => payload
           const results = await pullDevices(localGetUsage, query, hostname(), {})
           payload.combined = summarizeDeviceUsage(results, {

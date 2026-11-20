@@ -767,8 +767,27 @@ describe('codeburn status --format menubar-json', () => {
     }
   })
 
+  it('accepts combined scope with a provider filter', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codeburn-menubar-combined-provider-'))
+
+    try {
+      const result = runCli([
+        'status',
+        '--format', 'menubar-json',
+        '--scope', 'combined',
+        '--provider', 'claude',
+        '--period', 'today',
+        '--no-optimize',
+      ], home)
+
+      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+      expect(JSON.parse(result.stdout).combined.combined).toMatchObject({ deviceCount: 1, reachableCount: 1 })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it.each([
-    ['--provider', ['--provider', 'claude']],
     ['--project', ['--project', 'x']],
     ['--exclude', ['--exclude', 'y']],
   ])('rejects combined scope with filtered local payloads from %s', async (_name, filterArgs) => {
@@ -784,7 +803,7 @@ describe('codeburn status --format menubar-json', () => {
       ], home)
 
       expect(result.status).toBe(1)
-      expect(result.stderr).toContain('error: --scope combined cannot be combined with --provider, --project, or --exclude (paired devices report unfiltered usage)')
+      expect(result.stderr).toContain('error: --scope combined cannot be combined with --project or --exclude (paired devices do not share project names)')
     } finally {
       await rm(home, { recursive: true, force: true })
     }
