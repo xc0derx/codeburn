@@ -118,7 +118,7 @@ struct AgentTabStrip: View {
         // selection has no cached data of its own used to surface the previous
         // provider's totals here; the same hasCachedData gate the popover body
         // uses keeps that out of the tab strip.
-        store.periodAllPayload ?? (store.hasCachedData ? store.payload : .empty)
+        store.tabStripPayload ?? (store.hasCachedData ? store.payload : .empty)
     }
 
     private var visibleFilters: [ProviderFilter] {

@@ -112,11 +112,10 @@ struct DataClient {
                                  scope: MenubarScope = .local,
                                  claudeConfigSourceId: String? = nil) -> [String] {
         let effectiveScope: MenubarScope = days.count > 1 ? .local : scope
-        let effectiveProvider: ProviderFilter = effectiveScope == .combined ? .all : provider
         var subcommand = [
             "status",
             "--format", "menubar-json",
-            "--provider", effectiveProvider.cliArg,
+            "--provider", provider.cliArg,
         ]
         if effectiveScope == .combined {
             subcommand.append(contentsOf: ["--scope", effectiveScope.cliArg])

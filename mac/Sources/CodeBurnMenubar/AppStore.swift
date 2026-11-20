@@ -384,7 +384,8 @@ final class AppStore {
             if let localPayload = consistentCachedPayload(for: localCurrentKey) {
                 if let combinedPayload, let combined = combinedPayload.combined {
                     // The combined response's current/history already fold in
-                    // every paired device; findings stay this Mac's own.
+                    // every paired device, filtered to the selected provider.
+                    // Findings stay this Mac's own.
                     return MenubarPayload(
                         generated: combinedPayload.generated,
                         current: combinedPayload.current,
@@ -477,6 +478,36 @@ final class AppStore {
     /// per-provider costs that match the active period, not just today.
     var periodAllPayload: MenubarPayload? {
         cache[periodAllKey]?.payload
+    }
+
+    /// All-provider payload behind the tab strip. Under combined scope its
+    /// per-provider figures fold in paired devices; until that slice arrives
+    /// (or when no peer answered) the strip shows this Mac's own figures.
+    var tabStripPayload: MenubarPayload? {
+        if effectiveSelectedScope == .combined,
+           let combined = cache[combinedAllKey(for: currentKey)]?.payload,
+           combined.combined != nil {
+            return combined
+        }
+        return periodAllPayload
+    }
+
+    private func combinedAllKey(for key: PayloadCacheKey) -> PayloadCacheKey {
+        PayloadCacheKey(
+            scope: .combined,
+            period: key.period,
+            provider: .all,
+            day: key.day,
+            days: key.days,
+            claudeConfigSourceId: key.claudeConfigSourceId
+        )
+    }
+
+    /// A combined provider tab's own payload covers only that provider, so the
+    /// combined all-provider slice behind the tab strip is fetched alongside.
+    private func startCombinedTabEvidence(for key: PayloadCacheKey, force: Bool) -> Task<Bool, Never>? {
+        guard key.scope == .combined, key.provider != .all else { return nil }
+        return startAllProviderEvidence(key: combinedAllKey(for: key), force: force)
     }
 
     var claudeConfigOptions: [ClaudeConfigOption] {
@@ -718,13 +749,9 @@ final class AppStore {
     }
 
     func setMenubarScope(_ scope: MenubarScope) {
-        let shouldResetProvider = scope == .combined && selectedProvider != .all
-        guard menubarScope != scope || selectedScope != scope || shouldResetProvider else { return }
+        guard menubarScope != scope || selectedScope != scope else { return }
         menubarScope = scope
         selectedScope = scope
-        if shouldResetProvider {
-            selectedProvider = .all
-        }
         if scope == .combined {
             selectedClaudeConfigSourceId = nil
         }
@@ -761,12 +788,8 @@ final class AppStore {
     }
 
     func switchTo(scope: MenubarScope) {
-        let shouldResetProvider = scope == .combined && selectedProvider != .all
-        guard selectedScope != scope || shouldResetProvider else { return }
+        guard selectedScope != scope else { return }
         selectedScope = scope
-        if shouldResetProvider {
-            selectedProvider = .all
-        }
         if scope == .combined {
             selectedClaudeConfigSourceId = nil
         }
@@ -799,9 +822,11 @@ final class AppStore {
                 : self.startAllProviderEvidence(key: allKey, force: false)
             let gate: (@Sendable () async -> Void)? = allTask.map { task in { @Sendable in _ = await task.value } }
             if scope == .combined {
+                let tabsTask = self.startCombinedTabEvidence(for: key, force: false)
                 async let local = self.refresh(key: localKey, includeOptimize: false, force: false, showLoading: false, acceptAfter: gate)
                 async let combined = self.refresh(key: key, includeOptimize: false, force: false, showLoading: false, acceptAfter: gate)
                 _ = await (local, combined)
+                _ = await tabsTask?.value
             } else {
                 await self.refresh(key: key, includeOptimize: false, force: false, showLoading: false, acceptAfter: gate)
             }
@@ -1150,6 +1175,7 @@ final class AppStore {
             : startAllProviderEvidence(key: keys.all, force: force, qualityOfService: qualityOfService)
         let gate: (@Sendable () async -> Void)? = allTask.map { task in { @Sendable in _ = await task.value } }
         if keys.scoped.scope == .combined {
+            let tabsTask = startCombinedTabEvidence(for: keys.scoped, force: force)
             async let local = refreshQuietly(
                 key: keys.local,
                 includeOptimize: includeOptimize,
@@ -1166,6 +1192,7 @@ final class AppStore {
                 acceptAfter: gate
             )
             let (localSucceeded, combinedSucceeded) = await (local, combined)
+            _ = await tabsTask?.value
             return localSucceeded && combinedSucceeded
         } else {
             return await refresh(
@@ -1209,9 +1236,11 @@ final class AppStore {
             : startAllProviderEvidence(key: allKey, force: force)
         let gate: (@Sendable () async -> Void)? = allTask.map { task in { @Sendable in _ = await task.value } }
         if scope == .combined {
+            let tabsTask = startCombinedTabEvidence(for: scopedKey, force: force)
             async let local = refreshQuietly(key: localKey, includeOptimize: false, force: false, acceptAfter: gate)
             async let combined = refreshQuietly(key: scopedKey, includeOptimize: false, force: force, acceptAfter: gate)
             _ = await (local, combined)
+            _ = await tabsTask?.value
         } else {
             await refreshQuietly(key: scopedKey, includeOptimize: false, force: force, acceptAfter: gate)
         }

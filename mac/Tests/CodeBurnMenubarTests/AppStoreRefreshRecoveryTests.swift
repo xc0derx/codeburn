@@ -482,6 +482,60 @@ struct AppStoreRefreshRecoveryTests {
         #expect(store.payload.combined?.combined.cost == 42)
     }
 
+    @Test("combined provider tab shows every device's provider slice")
+    func combinedProviderTabFoldsDevices() {
+        let store = AppStore()
+        store.setCachedPayloadForTesting(
+            menubarPayload(cost: 5),
+            scope: .local,
+            period: .today,
+            provider: .codex,
+            fetchedAt: Date()
+        )
+        store.setCachedPayloadForTesting(
+            menubarPayload(cost: 99, combined: combinedUsage(cost: 42)),
+            scope: .combined,
+            period: .today,
+            provider: .codex,
+            fetchedAt: Date()
+        )
+
+        store.selectedScope = .combined
+        store.selectedProvider = .codex
+
+        #expect(store.payload.current.cost == 99)
+        #expect(store.payload.combined?.combined.cost == 42)
+    }
+
+    @Test("combined tab strip reads the combined all-provider slice")
+    func combinedTabStripReadsCombinedAllSlice() {
+        let store = AppStore()
+        store.setCachedPayloadForTesting(
+            menubarPayload(cost: 10),
+            scope: .local,
+            period: .today,
+            provider: .all,
+            fetchedAt: Date()
+        )
+        store.selectedScope = .combined
+        store.selectedProvider = .codex
+
+        // Until the combined slice arrives the strip keeps this Mac's figures.
+        #expect(store.tabStripPayload?.current.cost == 10)
+
+        store.setCachedPayloadForTesting(
+            menubarPayload(cost: 99, combined: combinedUsage(cost: 99)),
+            scope: .combined,
+            period: .today,
+            provider: .all,
+            fetchedAt: Date()
+        )
+        #expect(store.tabStripPayload?.current.cost == 99)
+
+        store.selectedScope = .local
+        #expect(store.tabStripPayload?.current.cost == 10)
+    }
+
     @Test("multi-day combined selection uses local cache path")
     func multiDayCombinedSelectionUsesLocalCachePath() {
         let store = AppStore()
@@ -643,8 +697,8 @@ struct AppStoreRefreshRecoveryTests {
         #expect(store.menubarBadgeCombined == nil)
     }
 
-    @Test("switching to combined resets selected provider to all")
-    func switchingToCombinedResetsSelectedProviderToAll() {
+    @Test("switching to combined keeps the selected provider")
+    func switchingToCombinedKeepsSelectedProvider() {
         let store = AppStore()
         store.suppressRefreshesForTesting()
         store.selectedScope = .local
@@ -653,7 +707,7 @@ struct AppStoreRefreshRecoveryTests {
         store.switchTo(scope: .combined)
 
         #expect(store.selectedScope == .combined)
-        #expect(store.selectedProvider == .all)
+        #expect(store.selectedProvider == .claude)
     }
 
     @Test("selected Claude config partitions payload cache")

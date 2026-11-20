@@ -18,8 +18,8 @@ struct DataClientProcessTests {
         #expect(args.contains("--no-optimize"))
     }
 
-    @Test("status argv combined adds scope and forces provider all")
-    func statusSubcommandCombinedAddsScopeAndForcesAllProvider() {
+    @Test("status argv combined adds scope and keeps the provider")
+    func statusSubcommandCombinedAddsScopeAndKeepsProvider() {
         let args = DataClient.statusSubcommand(
             period: .today,
             provider: .codex,
@@ -28,7 +28,7 @@ struct DataClientProcessTests {
         )
 
         #expect(value(after: "--scope", in: args) == "combined")
-        #expect(value(after: "--provider", in: args) == "all")
+        #expect(value(after: "--provider", in: args) == "codex")
         #expect(!args.contains("--no-optimize"))
     }
 
