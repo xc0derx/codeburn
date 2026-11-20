@@ -9,7 +9,8 @@ import { sanitizeForSharing } from './sanitize.js'
 import { getSharingDir, loadPeers, savePeers } from './store.js'
 import { loadPricing } from '../models.js'
 import { buildMenubarPayloadForRange } from '../usage-aggregator.js'
-import { periodInfoFromQuery } from '../cli-date.js'
+import { periodInfoFromQuery, UsageQueryError } from '../cli-date.js'
+import { allProviderNames } from '../providers/index.js'
 
 function lanAddress(): string | null {
   for (const list of Object.values(networkInterfaces())) {
@@ -22,6 +23,15 @@ function lanAddress(): string | null {
 
 const IDLE_TIMEOUT_MS = 10 * 60_000
 
+// A peer's provider filter. Peers can run builds that know different provider
+// sets, so an unknown name is a bad request (an error row on that peer), never
+// a crash of this long-running server.
+export function sharedProviderFromQuery(q: UsageQuery): string {
+  const provider = q.provider ?? 'all'
+  if (provider === 'all' || allProviderNames().includes(provider)) return provider
+  throw new UsageQueryError(`Unknown provider "${provider}".`)
+}
+
 // Run the secure share server. On-demand by default: it stops after 10 minutes
 // of no requests. `--always` keeps it up until Ctrl+C (the opt-in persistent
 // mode). `--pair` opens a one-time pairing window and prints the PIN + command.
@@ -33,7 +43,11 @@ export async function runShareServer(opts: { port: number; pair: boolean; always
 
   const getUsage = async (q: UsageQuery): Promise<unknown> => {
     const periodInfo = periodInfoFromQuery(q, 'month')
-    return sanitizeForSharing(await buildMenubarPayloadForRange(periodInfo, { provider: 'all', optimize: false }))
+    const provider = sharedProviderFromQuery(q)
+    const payload = sanitizeForSharing(await buildMenubarPayloadForRange(periodInfo, { provider, optimize: false }))
+    // Echoed so a puller can tell a filtered answer from an older peer that
+    // ignored the parameter and sent every provider.
+    return provider === 'all' ? payload : { ...payload, providerFilter: provider }
   }
 
   const server = new ShareServer({

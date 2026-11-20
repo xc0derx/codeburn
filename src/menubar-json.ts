@@ -309,6 +309,10 @@ export type MenubarPayload = {
   /// Add-only. Emitted only by `status --format menubar-json`, and only when
   /// Cursor is on this machine or has synced before; absence means "no Cursor".
   cursorSync?: CursorSyncStatus
+  /// Add-only. Set by a paired device's share server when the pull asked for a
+  /// single provider, so the puller can tell it from an older peer that sent
+  /// every provider. Absent on unfiltered and local payloads.
+  providerFilter?: string
   current: {
     label: string
     cost: number

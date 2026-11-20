@@ -7,7 +7,7 @@ import { UsageQueryError } from '../cli-date.js'
 import { certFingerprint, pairingCode, PeerStore, PairingWindow } from './pairing.js'
 import type { Identity } from './identity.js'
 
-export type UsageQuery = { period?: string; from?: string; to?: string }
+export type UsageQuery = { period?: string; from?: string; to?: string; provider?: string }
 
 // An approve-style pairing request, surfaced to the user on the sharing device.
 export type PairRequest = { name: string; fingerprint: string; code: string }
@@ -174,6 +174,7 @@ export class ShareServer {
         period: url.searchParams.get('period') ?? undefined,
         from: url.searchParams.get('from') ?? undefined,
         to: url.searchParams.get('to') ?? undefined,
+        provider: url.searchParams.get('provider') ?? undefined,
       })
       json(200, payload)
       return

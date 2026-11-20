@@ -57,6 +57,10 @@ function fixture(): MenubarPayload {
 }
 
 describe('sanitizeForSharing', () => {
+  it('keeps the provider filter echo, which tells a filtered answer from an old peer', () => {
+    expect(sanitizeForSharing({ ...fixture(), providerFilter: 'codex' }).providerFilter).toBe('codex')
+  })
+
   it('strips project names and session detail but keeps aggregates', () => {
     const clean = sanitizeForSharing(fixture())
     expect(clean.current.topProjects).toEqual([])

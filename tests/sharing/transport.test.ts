@@ -79,6 +79,33 @@ describe('device sharing transport (loopback mutual TLS)', () => {
     }
   })
 
+  it('passes the provider filter to getUsage', async () => {
+    const seen: Array<string | undefined> = []
+    const filterServer = new ShareServer({
+      identity: serverId,
+      peers,
+      getUsage: async (q) => {
+        seen.push(q.provider)
+        return { current: { cost: 0 } }
+      },
+    })
+    const filterPort = await filterServer.listen(0, '127.0.0.1')
+    try {
+      const pin = filterServer.openPairing()
+      const pr = await pair({ ...ep(), port: filterPort }, pin, 'Mac Studio')
+      const token = (pr.json as { token: string }).token
+      const ur = await fetchUsage(
+        { ...ep(), port: filterPort, expectedFingerprint: serverId.fingerprint },
+        token,
+        { period: 'week', provider: 'codex' },
+      )
+      expect(ur.status).toBe(200)
+      expect(seen).toEqual(['codex'])
+    } finally {
+      await filterServer.close()
+    }
+  })
+
   it('keeps unexpected getUsage failures as internal errors', async () => {
     const badServer = new ShareServer({
       identity: serverId,

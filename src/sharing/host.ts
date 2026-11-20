@@ -20,6 +20,7 @@ export type { CombinedUsage, DeviceSummary } from '../menubar-json.js'
 type DevicePayload = {
   current?: { cost?: number; calls?: number; sessions?: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
   history?: { daily?: Array<{ date?: string; cacheReadTokens?: number; cacheWriteTokens?: number }> }
+  providerFilter?: string
 }
 
 type SummaryWindow = {
@@ -335,7 +336,15 @@ export async function pullDevices(
         // Re-sanitize on receipt: do not trust the sender to have stripped its
         // own project names/sessions (it may run an older build). Belt and
         // suspenders alongside the sender-side sanitize.
-        if (res.status === 200) return { id: r.fingerprint, name: r.name, local: false, payload: sanitizeForSharing(res.json as MenubarPayload) }
+        if (res.status === 200) {
+          const payload = sanitizeForSharing(res.json as MenubarPayload)
+          // An older peer ignores `provider` and answers with every provider;
+          // counting that under a single provider would overstate it.
+          if (query.provider && query.provider !== 'all' && payload.providerFilter !== query.provider) {
+            return { id: r.fingerprint, name: r.name, local: false, error: 'cannot filter by provider (update codeburn there)' }
+          }
+          return { id: r.fingerprint, name: r.name, local: false, payload }
+        }
         return { id: r.fingerprint, name: r.name, local: false, error: res.status === 401 ? 'not authorized (re-pair?)' : `HTTP ${res.status}` }
       } catch (e) {
         return { id: r.fingerprint, name: r.name, local: false, error: e instanceof Error ? e.message : String(e) }

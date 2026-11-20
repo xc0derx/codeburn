@@ -59,6 +59,33 @@ describe('host device flow', () => {
     expect(text).toContain('150') // combined cost 50 + 100
   })
 
+  it('turns a peer that ignored the provider filter into an error row', async () => {
+    clientMock.hello.mockResolvedValue({ status: 200, json: { fingerprint: 'remote-fp', name: 'MacBook' } })
+    clientMock.pair.mockResolvedValue({ status: 200, json: { token: 'remote-token' } })
+    await addRemote('127.0.0.1:7777', '123456', { defaultPort: 7777, dir })
+    const local = async () => ({ current: { cost: 5 } })
+
+    // Older peer: answers with every provider and no echo.
+    clientMock.fetchUsage.mockResolvedValue({ status: 200, json: { current: { cost: 100 } } })
+    const old = await pullDevices(local, { period: 'week', provider: 'codex' }, 'Mac Studio', { dir })
+    expect(old[1]).toMatchObject({ error: 'cannot filter by provider (update codeburn there)' })
+    expect(old[1]!.payload).toBeUndefined()
+
+    clientMock.fetchUsage.mockResolvedValue({ status: 200, json: { current: { cost: 30 }, providerFilter: 'codex' } })
+    const current = await pullDevices(local, { period: 'week', provider: 'codex' }, 'Mac Studio', { dir })
+    expect(current[1]!.payload!.current!.cost).toBe(30)
+    expect(clientMock.fetchUsage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'remote-token',
+      { period: 'week', provider: 'codex' },
+    )
+
+    // An unfiltered pull does not require the echo.
+    clientMock.fetchUsage.mockResolvedValue({ status: 200, json: { current: { cost: 100 } } })
+    const all = await pullDevices(local, { period: 'week' }, 'Mac Studio', { dir })
+    expect(all[1]!.payload!.current!.cost).toBe(100)
+  })
+
   it('renders an unreachable device as an error without dropping the combined row', () => {
     const results: DeviceUsage[] = [
       { id: 'local', name: 'Mac Studio', local: true, payload: { current: { cost: 10, calls: 1, sessions: 1, inputTokens: 1, outputTokens: 1 } } },
