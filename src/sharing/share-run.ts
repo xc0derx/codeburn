@@ -32,6 +32,17 @@ export function sharedProviderFromQuery(q: UsageQuery): string {
   throw new UsageQueryError(`Unknown provider "${provider}".`)
 }
 
+// The sanitized usage a paired device pulls. Shared by the CLI share server and
+// the dashboard's share, so both honor the same query.
+export async function buildSharedUsage(q: UsageQuery, defaultPeriod: string): Promise<unknown> {
+  const periodInfo = periodInfoFromQuery(q, defaultPeriod)
+  const provider = sharedProviderFromQuery(q)
+  const payload = sanitizeForSharing(await buildMenubarPayloadForRange(periodInfo, { provider, optimize: false }))
+  // Echoed so a puller can tell a filtered answer from an older peer that
+  // ignored the parameter and sent every provider.
+  return provider === 'all' ? payload : { ...payload, providerFilter: provider }
+}
+
 // Run the secure share server. On-demand by default: it stops after 10 minutes
 // of no requests. `--always` keeps it up until Ctrl+C (the opt-in persistent
 // mode). `--pair` opens a one-time pairing window and prints the PIN + command.
@@ -41,14 +52,7 @@ export async function runShareServer(opts: { port: number; pair: boolean; always
   const identity = await loadOrCreateIdentity(dir)
   const peers = new PeerStore(await loadPeers(dir))
 
-  const getUsage = async (q: UsageQuery): Promise<unknown> => {
-    const periodInfo = periodInfoFromQuery(q, 'month')
-    const provider = sharedProviderFromQuery(q)
-    const payload = sanitizeForSharing(await buildMenubarPayloadForRange(periodInfo, { provider, optimize: false }))
-    // Echoed so a puller can tell a filtered answer from an older peer that
-    // ignored the parameter and sent every provider.
-    return provider === 'all' ? payload : { ...payload, providerFilter: provider }
-  }
+  const getUsage = (q: UsageQuery): Promise<unknown> => buildSharedUsage(q, 'month')
 
   const server = new ShareServer({
     identity,

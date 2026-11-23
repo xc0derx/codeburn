@@ -18,7 +18,8 @@ import { loadOrCreateIdentity } from './sharing/identity.js'
 import { pairingCode } from './sharing/pairing.js'
 import { getSharingDir, loadRemotes, loadShareAlways, saveShareAlways } from './sharing/store.js'
 import { ShareController } from './sharing/share-controller.js'
-import { sanitizeForSharing } from './sharing/sanitize.js'
+import { buildSharedUsage } from './sharing/share-run.js'
+import type { UsageQuery } from './sharing/share-server.js'
 import { buildContextTree, findClaudeSession, listRecentTitledSessions, snapshotRows, type ContextTreeResult, type SessionRef } from './context-tree.js'
 import { buildCodexContextTree, findCodexSession, listRecentCodexSessions } from './context-tree-codex.js'
 
@@ -148,10 +149,7 @@ export async function runWebDashboard(opts: {
 
   // Sharing this device serves the SANITIZED aggregate (no project names/paths
   // or per-session detail), unlike the local /api/usage which shows everything.
-  const shareGetUsage = async (q: { period?: string; from?: string; to?: string }) => {
-    const periodInfo = periodInfoFromQuery(q, opts.period)
-    return sanitizeForSharing(await buildMenubarPayloadForRange(periodInfo, { provider: 'all', optimize: false }))
-  }
+  const shareGetUsage = (q: UsageQuery) => buildSharedUsage(q, opts.period)
   const share = new ShareController(shareGetUsage)
   if (await loadShareAlways()) await share.start(true).catch(() => {})
 
