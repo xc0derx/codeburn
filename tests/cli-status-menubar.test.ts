@@ -744,6 +744,7 @@ describe('codeburn status --format menubar-json', () => {
         totalTokens,
         deviceCount: 1,
         reachableCount: 1,
+        sessionCountBasis: payload.current.sessionCountBasis === 'identity' ? 'identity' : 'partial',
       })
       expect(payload.combinedDevices).toHaveLength(1)
       expect(payload.combinedDevices![0]).toMatchObject({

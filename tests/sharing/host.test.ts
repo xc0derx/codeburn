@@ -179,6 +179,8 @@ describe('host device flow', () => {
       totalTokens: 225,
       deviceCount: 3,
       reachableCount: 2,
+      // Neither reachable payload reports a basis.
+      sessionCountBasis: 'partial',
     })
   })
 
@@ -373,6 +375,36 @@ describe('mergeDevicePayloads', () => {
     expect(history.daily[0]!.topModels).toEqual([
       { name: 'GPT-6.1 Terra', cost: 3.36, savingsUSD: 0, calls: 2, inputTokens: 20, outputTokens: 2 },
     ])
+  })
+
+  it('marks the summed session count exact only when every device counted by identity', () => {
+    const exactLocal = devicePayload({ ...local.current, sessionCountBasis: 'identity' })
+    const exactRemote = devicePayload({ ...remote.current, sessionCountBasis: 'identity' })
+    const both = (r: MenubarPayload): DeviceUsage[] => [
+      { id: 'local', name: 'Mac', local: true, payload: exactLocal },
+      { id: 'fp', name: 'netcup-1', local: false, payload: r },
+    ]
+
+    const exact = mergeDevicePayloads(exactLocal, both(exactRemote)).current
+    expect(exact.sessions).toBe(12)
+    expect(exact.sessionCountBasis).toBe('identity')
+
+    // A remote lower bound (or an older peer with no basis) makes the sum one too.
+    expect(mergeDevicePayloads(exactLocal, both(devicePayload({ ...remote.current, sessionCountBasis: 'partial' }))).current.sessionCountBasis).toBe('partial')
+    expect(mergeDevicePayloads(exactLocal, both(remote)).current.sessionCountBasis).toBe('partial')
+
+    // The local device's basis counts too.
+    const partialLocal = devicePayload({ ...local.current, sessionCountBasis: 'partial' })
+    expect(mergeDevicePayloads(partialLocal, [{ id: 'local', name: 'Mac', local: true, payload: partialLocal }, { id: 'fp', name: 'netcup-1', local: false, payload: exactRemote }]).current.sessionCountBasis).toBe('partial')
+    expect(mergeDevicePayloads(local, [{ id: 'local', name: 'Mac', local: true, payload: local }, { id: 'fp', name: 'netcup-1', local: false, payload: exactRemote }]).current.sessionCountBasis).toBe('partial')
+
+    // An unreachable peer contributes nothing, so this Mac's exact count stays exact.
+    expect(mergeDevicePayloads(exactLocal, [{ id: 'local', name: 'Mac', local: true, payload: exactLocal }, { id: 'off', name: 'offline', local: false, error: 'timeout' }]).current.sessionCountBasis).toBe('identity')
+
+    // The combined headline carries the same basis as the merged current.
+    expect(summarizeDeviceUsage(both(exactRemote)).combined).toMatchObject({ sessions: 12, sessionCountBasis: 'identity' })
+    expect(summarizeDeviceUsage(both(remote)).combined.sessionCountBasis).toBe('partial')
+    expect(summarizeDeviceUsage([{ id: 'local', name: 'Mac', local: true, payload: exactLocal }, { id: 'off', name: 'offline', local: false, error: 'timeout' }]).combined.sessionCountBasis).toBe('identity')
   })
 
   it('leaves a local-only result unchanged', () => {

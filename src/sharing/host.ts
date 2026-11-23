@@ -8,6 +8,7 @@ import { getSharingDir, loadRemotes, saveRemotes, type RemoteDevice } from './st
 import type { CombinedUsage, DeviceSummary, MenubarPayload } from '../menubar-json.js'
 import { formatCost } from '../currency.js'
 import { sessionCacheHitPercent } from '../sessions-report.js'
+import type { SessionCountBasis } from '../session-count-label.js'
 import { renderTable } from '../text-table.js'
 import { Chalk } from 'chalk'
 
@@ -18,7 +19,7 @@ export type { CombinedUsage, DeviceSummary } from '../menubar-json.js'
 // when the peer sends them; older peers only carry cache in the daily history,
 // so we fall back to summing that (scoped by `window` when provided).
 type DevicePayload = {
-  current?: { cost?: number; calls?: number; sessions?: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
+  current?: { cost?: number; calls?: number; sessions?: number; sessionCountBasis?: SessionCountBasis; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
   history?: { daily?: Array<{ date?: string; cacheReadTokens?: number; cacheWriteTokens?: number }> }
   providerFilter?: string
 }
@@ -90,17 +91,22 @@ function summarizeOneDevice(d: DeviceUsage, window?: SummaryWindow): DeviceSumma
   }
 }
 
+// Devices keep separate session logs, so a sum of per-device counts is exact
+// when every reachable device counted its own sessions exactly; otherwise it is
+// a lower bound like any partial count. Older peers send no basis: partial.
+function combinedSessionCountBasis(currents: Array<{ sessionCountBasis?: SessionCountBasis } | undefined>): SessionCountBasis {
+  return currents.length > 0 && currents.every((c) => c?.sessionCountBasis === 'identity') ? 'identity' : 'partial'
+}
+
 export function summarizeDeviceUsage(results: DeviceUsage[], window?: SummaryWindow): CombinedUsage {
   const perDevice = results.map((d) => summarizeOneDevice(d, window))
+  const reachable = results.filter((d) => d.error === undefined && d.payload !== undefined)
   const combined = perDevice.reduce(
     (a, d) => {
       if (d.error !== undefined) return a
       return {
         cost: a.cost + d.cost,
         calls: a.calls + d.calls,
-        // Numeric wire sum only. Combined-scope UI must not present this as a
-        // unique or lower-bound session count until a cross-device identity
-        // contract exists.
         sessions: a.sessions + d.sessions,
         inputTokens: a.inputTokens + d.inputTokens,
         outputTokens: a.outputTokens + d.outputTokens,
@@ -113,7 +119,7 @@ export function summarizeDeviceUsage(results: DeviceUsage[], window?: SummaryWin
     },
     { ...zeroUsage, deviceCount: perDevice.length, reachableCount: 0 },
   )
-  return { perDevice, combined }
+  return { perDevice, combined: { ...combined, sessionCountBasis: combinedSessionCountBasis(reachable.map((d) => d.payload!.current)) } }
 }
 
 type Current = MenubarPayload['current']
@@ -170,6 +176,8 @@ export function mergeDevicePayloads(local: MenubarPayload, results: DeviceUsage[
     cost: sum('cost'),
     calls: sum('calls'),
     sessions: sum('sessions'),
+    // Same rule as the combined headline (see combinedSessionCountBasis).
+    ...(payloads.length > 1 ? { sessionCountBasis: combinedSessionCountBasis(currents) } : {}),
     inputTokens,
     outputTokens: sum('outputTokens'),
     cacheReadTokens,

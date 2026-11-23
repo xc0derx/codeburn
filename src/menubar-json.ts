@@ -233,6 +233,9 @@ export type CombinedUsage = {
     totalTokens: number
     deviceCount: number
     reachableCount: number
+    /// Add-only. 'identity' when every reachable device counted its own
+    /// sessions exactly, so the per-device sum is exact; otherwise a lower bound.
+    sessionCountBasis?: SessionCountBasis
   }
 }
 
