@@ -405,6 +405,8 @@ describe('mergeDevicePayloads', () => {
     expect(summarizeDeviceUsage(both(exactRemote)).combined).toMatchObject({ sessions: 12, sessionCountBasis: 'identity' })
     expect(summarizeDeviceUsage(both(remote)).combined.sessionCountBasis).toBe('partial')
     expect(summarizeDeviceUsage([{ id: 'local', name: 'Mac', local: true, payload: exactLocal }, { id: 'off', name: 'offline', local: false, error: 'timeout' }]).combined.sessionCountBasis).toBe('identity')
+    // No reachable device: an empty sum is never exact.
+    expect(summarizeDeviceUsage([{ id: 'off', name: 'offline', local: false, error: 'timeout' }]).combined.sessionCountBasis).toBe('partial')
   })
 
   it('leaves a local-only result unchanged', () => {

@@ -3,7 +3,11 @@ import { describe, it, expect, vi } from 'vitest'
 import { UsageQueryError } from '../../src/cli-date.js'
 
 const aggregator = vi.hoisted(() => ({
-  buildMenubarPayloadForRange: vi.fn(async () => ({ current: { cost: 1, topProjects: [], topSessions: [] }, history: { daily: [] } })),
+  buildMenubarPayloadForRange: vi.fn(async () => ({
+    current: { cost: 1, topProjects: [{ name: 'secret-project' }], topSessions: [{ project: 'secret-project' }] },
+    history: { daily: [] },
+    liveSessions: { sessions: [{ project: 'secret-project' }] },
+  })),
 }))
 vi.mock('../../src/usage-aggregator.js', () => aggregator)
 
@@ -28,6 +32,17 @@ describe('buildSharedUsage', () => {
     const payload = await buildSharedUsage({ period: 'week', provider: 'codex' }, 'month') as { providerFilter?: string }
     expect(aggregator.buildMenubarPayloadForRange).toHaveBeenLastCalledWith(expect.anything(), { provider: 'codex', optimize: false })
     expect(payload.providerFilter).toBe('codex')
+  })
+
+  it('sanitizes the payload before it leaves the device', async () => {
+    const payload = await buildSharedUsage({ provider: 'codex' }, 'month')
+    expect(JSON.stringify(payload)).not.toContain('secret-project')
+  })
+
+  it('rejects an unknown provider before aggregating', async () => {
+    aggregator.buildMenubarPayloadForRange.mockClear()
+    await expect(buildSharedUsage({ provider: 'not-a-provider' }, 'month')).rejects.toThrow(UsageQueryError)
+    expect(aggregator.buildMenubarPayloadForRange).not.toHaveBeenCalled()
   })
 
   it('sends every provider without an echo by default', async () => {

@@ -34,15 +34,20 @@ struct MenubarPayloadCombinedTests {
         #expect(SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis) == "At least 3 sessions")
     }
 
-    @Test("combined hero shows an exact sum when every device counted by identity")
-    func combinedHeroExactSessionSum() throws {
-        let json = String(decoding: combinedPayloadJSON(), as: UTF8.self)
-            .replacingOccurrences(of: "\"reachableCount\": 1", with: "\"reachableCount\": 1, \"sessionCountBasis\": \"identity\"")
-        let payload = try JSONDecoder().decode(MenubarPayload.self, from: Data(json.utf8))
-        let totals = HeroTotals(payload: payload, activeScope: .combined)
+    @Test("combined hero takes the session basis from the combined block only")
+    func combinedHeroSessionBasis() throws {
+        func label(current: String?, combined: String?) throws -> String {
+            let json = combinedPayloadJSON(currentSessionCountBasis: current, combinedSessionCountBasis: combined)
+            let payload = try JSONDecoder().decode(MenubarPayload.self, from: json)
+            let totals = HeroTotals(payload: payload, activeScope: .combined)
+            return SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis)
+        }
 
-        #expect(payload.combined?.combined.sessionCountBasis == "identity")
-        #expect(SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis) == "3 sessions")
+        #expect(try label(current: nil, combined: "identity") == "3 sessions")
+        #expect(try label(current: nil, combined: "partial") == "At least 3 sessions")
+        // An older CLI: an exact local basis on current, none on the device sum.
+        #expect(try label(current: "identity", combined: nil) == "At least 3 sessions")
+        #expect(try label(current: "identity", combined: "partial") == "At least 3 sessions")
     }
 
     @Test("combined block is nil when absent")
@@ -75,8 +80,14 @@ struct MenubarPayloadCombinedTests {
     }
 }
 
-private func combinedPayloadJSON() -> Data {
-    Data("""
+private func combinedPayloadJSON(
+    currentSessionCountBasis: String? = nil,
+    combinedSessionCountBasis: String? = nil
+) -> Data {
+    func basis(_ value: String?) -> String {
+        value.map { "\"sessionCountBasis\": \"\($0)\"," } ?? ""
+    }
+    return Data("""
     {
       "generated": "2026-06-24T00:00:00Z",
       "current": {
@@ -84,6 +95,7 @@ private func combinedPayloadJSON() -> Data {
         "cost": 1.25,
         "calls": 2,
         "sessions": 1,
+        \(basis(currentSessionCountBasis))
         "inputTokens": 100,
         "outputTokens": 50
       },
@@ -135,6 +147,7 @@ private func combinedPayloadJSON() -> Data {
           "cacheCreateTokens": 200,
           "cacheReadTokens": 300,
           "totalTokens": 2000,
+          \(basis(combinedSessionCountBasis))
           "deviceCount": 2,
           "reachableCount": 1
         }
