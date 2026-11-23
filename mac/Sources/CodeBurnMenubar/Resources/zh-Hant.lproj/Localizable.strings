@@ -66,7 +66,7 @@
 
 /* MARK: Session counts */
 "Older session logs may be unavailable." = "較早的會話日誌可能不可用。";
-"Session identities are unavailable across devices." = "跨裝置無法識別會話身份。";
+"Summed across devices. A session synced to more than one device counts once per device." = "各裝置的合計。同步到多台裝置的會話會在每台裝置上各計一次。";
 "Session count unavailable" = "會話數不可用";
 "At least 1 session" = "至少 1 個會話";
 "At least %lld sessions" = "至少 %lld 個會話";

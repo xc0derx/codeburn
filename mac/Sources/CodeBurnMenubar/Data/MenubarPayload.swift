@@ -214,6 +214,9 @@ struct CombinedUsageTotals: Codable, Sendable {
     let totalTokens: Int
     let deviceCount: Int
     let reachableCount: Int
+    /// "identity" when every reachable device counted its own sessions exactly.
+    /// Older CLIs omit it, so the sum reads as a lower bound.
+    var sessionCountBasis: String? = nil
 }
 
 struct HistoryBlock: Codable, Sendable {

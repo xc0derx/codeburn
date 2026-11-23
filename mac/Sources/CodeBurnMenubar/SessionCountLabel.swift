@@ -1,9 +1,9 @@
 /// Shared session-count phrasing. Keep in lockstep with `src/session-count-label.ts`.
 enum SessionCountLabel {
     static var help: String { L("Older session logs may be unavailable.") }
-    /// Combined-scope counts are a per-device numeric sum with no shared identity.
-    /// Do not show that sum as unique or as a lower bound.
-    static var combinedHelp: String { L("Session identities are unavailable across devices.") }
+    /// Combined-scope counts are a per-device sum: devices keep separate session
+    /// logs, so it is exact unless one device's logs are synced to another.
+    static var combinedHelp: String { L("Summed across devices. A session synced to more than one device counts once per device.") }
     static var combinedText: String { L("Session count unavailable") }
 
     static func isExact(_ basis: String?) -> Bool {
@@ -32,7 +32,7 @@ enum SessionCountLabel {
     }
 
     static func helpText(combined: Bool, basis: String?) -> String {
-        if combined { return combinedHelp }
+        if combined { return isExact(basis) ? combinedHelp : "\(combinedHelp)\n\(help)" }
         return isExact(basis) ? "" : help
     }
 }

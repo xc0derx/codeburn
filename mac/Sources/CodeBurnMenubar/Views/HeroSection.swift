@@ -45,9 +45,7 @@ struct HeroSection: View {
                             .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                        Text(combinedUsage != nil
-                             ? SessionCountLabel.combinedText
-                             : SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis))
+                        Text(SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis))
                             .font(.system(size: 10.5))
                             .monospacedDigit()
                             .foregroundStyle(.tertiary)
@@ -189,15 +187,16 @@ struct HeroTotals: Equatable {
 
     init(payload: MenubarPayload, activeScope: MenubarScope) {
         if activeScope == .combined, let combined = payload.combined?.combined {
-            // Keep the numeric wire sum for compatibility. Combined-scope UI
-            // must not present it as a unique or lower-bound count.
+            // The per-device session sum, with its basis from the same block so
+            // an older CLI (no basis) never reads as exact.
             self.init(
                 cost: combined.cost,
                 calls: combined.calls,
                 sessions: combined.sessions,
                 inputTokens: combined.inputTokens,
                 outputTokens: combined.outputTokens,
-                totalTokens: combined.inputTokens + combined.outputTokens
+                totalTokens: combined.inputTokens + combined.outputTokens,
+                sessionCountBasis: combined.sessionCountBasis
             )
             return
         }

@@ -24,16 +24,15 @@ struct SessionCountLabelTests {
         #expect(SessionCountLabel.compact(sessions: 0, basis: "partial") == "Unavailable")
     }
 
-    @Test("combined-scope copy never presents a device sum as a count")
-    func combinedScopeUnavailable() {
-        #expect(SessionCountLabel.combinedText == "Session count unavailable")
-        #expect(SessionCountLabel.combinedHelp == "Session identities are unavailable across devices.")
-        #expect(!SessionCountLabel.combinedText.hasPrefix("At least"))
+    @Test("combined-scope help says the count is a per-device sum")
+    func combinedScopeSum() {
+        #expect(SessionCountLabel.combinedHelp == "Summed across devices. A session synced to more than one device counts once per device.")
         #expect(SessionCountLabel.helpText(combined: true, basis: "identity") == SessionCountLabel.combinedHelp)
-        #expect(SessionCountLabel.helpText(combined: true, basis: nil) == SessionCountLabel.combinedHelp)
+        // A lower bound also explains why it is one.
+        let lowerBound = "\(SessionCountLabel.combinedHelp)\n\(SessionCountLabel.help)"
+        #expect(SessionCountLabel.helpText(combined: true, basis: "partial") == lowerBound)
+        #expect(SessionCountLabel.helpText(combined: true, basis: nil) == lowerBound)
         #expect(SessionCountLabel.helpText(combined: false, basis: "identity") == "")
-        #expect(SessionCountLabel.text(sessions: 0, basis: "identity") == "0 sessions")
-        #expect(SessionCountLabel.text(sessions: 3, basis: "partial") == "At least 3 sessions")
     }
 
     @Test("older payloads with a required numeric average still decode")

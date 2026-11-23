@@ -73,7 +73,7 @@
 
 /* MARK: Session counts */
 "Older session logs may be unavailable." = "Older session logs may be unavailable.";
-"Session identities are unavailable across devices." = "Session identities are unavailable across devices.";
+"Summed across devices. A session synced to more than one device counts once per device." = "Summed across devices. A session synced to more than one device counts once per device.";
 "Session count unavailable" = "Session count unavailable";
 "At least 1 session" = "At least 1 session";
 "At least %lld sessions" = "At least %lld sessions";

@@ -30,7 +30,19 @@ struct MenubarPayloadCombinedTests {
         #expect(totals.outputTokens == 500)
         #expect(totals.totalTokens == 1500)
         #expect(totals.sessions == 3)
-        #expect(SessionCountLabel.combinedText == "Session count unavailable")
+        // No basis on the combined block: the sum reads as a lower bound.
+        #expect(SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis) == "At least 3 sessions")
+    }
+
+    @Test("combined hero shows an exact sum when every device counted by identity")
+    func combinedHeroExactSessionSum() throws {
+        let json = String(decoding: combinedPayloadJSON(), as: UTF8.self)
+            .replacingOccurrences(of: "\"reachableCount\": 1", with: "\"reachableCount\": 1, \"sessionCountBasis\": \"identity\"")
+        let payload = try JSONDecoder().decode(MenubarPayload.self, from: Data(json.utf8))
+        let totals = HeroTotals(payload: payload, activeScope: .combined)
+
+        #expect(payload.combined?.combined.sessionCountBasis == "identity")
+        #expect(SessionCountLabel.text(sessions: totals.sessions, basis: totals.sessionCountBasis) == "3 sessions")
     }
 
     @Test("combined block is nil when absent")

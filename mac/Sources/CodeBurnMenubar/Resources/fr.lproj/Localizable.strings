@@ -66,7 +66,7 @@
 
 /* MARK: Session counts */
 "Older session logs may be unavailable." = "Les anciens journaux de session peuvent être indisponibles.";
-"Session identities are unavailable across devices." = "Les identités de session ne sont pas disponibles entre appareils.";
+"Summed across devices. A session synced to more than one device counts once per device." = "Somme sur les appareils. Une session synchronisée sur plusieurs appareils compte une fois par appareil.";
 "Session count unavailable" = "Nombre de sessions indisponible";
 "At least 1 session" = "Au moins 1 session";
 "At least %lld sessions" = "Au moins %lld sessions";
